@@ -4,17 +4,28 @@
 """
 
 import re
-import json
 import time
 from typing import Optional, Dict, Any, Tuple
 from urllib.parse import urlparse, parse_qs
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.common.exceptions import TimeoutException, WebDriverException
+
+# Selenium设为可选
+try:
+    from selenium import webdriver
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.chrome.service import Service
+    from selenium.common.exceptions import TimeoutException, WebDriverException
+    SELENIUM_AVAILABLE = True
+except ImportError:
+    SELENIUM_AVAILABLE = False
+
+try:
+    from webdriver_manager.chrome import ChromeDriverManager
+    WEBDRIVER_MANAGER_AVAILABLE = True
+except ImportError:
+    WEBDRIVER_MANAGER_AVAILABLE = False
+
 import requests
 from bs4 import BeautifulSoup
 
@@ -105,27 +116,16 @@ class SpecialSiteHandler:
         self.driver = None
 
     def identify_site(self, url: str) -> Tuple[Optional[str], Optional[Dict]]:
-        """
-        识别网站类型
-
-        Args:
-            url: 网页URL
-
-        Returns:
-            (网站名称, 网站配置) 或 (None, None)
-        """
+        """识别网站类型"""
         parsed = urlparse(url)
         domain = parsed.netloc.lower()
 
-        # 移除www前缀
         if domain.startswith('www.'):
             domain = domain[4:]
 
-        # 精确匹配
         if domain in self.SPECIAL_SITES:
             return self.SPECIAL_SITES[domain]['name'], self.SPECIAL_SITES[domain]
 
-        # 部分匹配
         for site_domain, config in self.SPECIAL_SITES.items():
             if site_domain in domain:
                 return config['name'], config
@@ -133,17 +133,17 @@ class SpecialSiteHandler:
         return None, None
 
     def extract(self, url: str, config: Dict) -> Dict[str, Any]:
-        """
-        根据配置提取网页内容
-
-        Args:
-            url: 网页URL
-            config: 网站配置
-
-        Returns:
-            提取的内容字典
-        """
+        """根据配置提取网页内容"""
         method = config.get('method', 'generic')
+
+        # 检查是否需要JS但Selenium不可用
+        if config.get('need_js') and not SELENIUM_AVAILABLE:
+            return {
+                'title': config.get('name', '网页文章'),
+                'content': f'该网站({config.get("name")})需要JavaScript渲染，当前Selenium不可用。\n\n请手动复制内容，或安装兼容版本的Selenium。\n\n原文链接: {url}',
+                'url': url,
+                'note': 'Selenium不可用'
+            }
 
         if method == 'wechat':
             return self._extract_wechat(url)
@@ -168,6 +168,9 @@ class SpecialSiteHandler:
 
     def _init_driver(self):
         """初始化Chrome驱动"""
+        if not SELENIUM_AVAILABLE:
+            return None
+
         if self.driver is None:
             options = webdriver.ChromeOptions()
             options.add_argument('--headless')
@@ -179,12 +182,12 @@ class SpecialSiteHandler:
             options.add_argument('--disable-blink-features=AutomationControlled')
 
             try:
-                service = Service(ChromeDriverManager().install())
-                self.driver = webdriver.Chrome(service=service, options=options)
-                self.driver.set_page_load_timeout(30)
+                if WEBDRIVER_MANAGER_AVAILABLE:
+                    service = Service(ChromeDriverManager().install())
+                    self.driver = webdriver.Chrome(service=service, options=options)
+                    self.driver.set_page_load_timeout(30)
             except Exception as e:
                 print(f"初始化Chrome驱动失败: {e}")
-                # 使用备用方案
                 self.driver = None
 
     def _extract_wechat(self, url: str) -> Dict[str, Any]:
@@ -192,23 +195,19 @@ class SpecialSiteHandler:
         self._init_driver()
 
         if self.driver is None:
-            # 尝试使用API方式
-            return self._extract_wechat_api(url)
+            return self._extract_wechat_simple(url)
 
         try:
             self.driver.get(url)
             time.sleep(3)
 
-            # 等待页面加载
             WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.ID, "activity-name"))
             )
 
-            # 获取标题
             title_elem = self.driver.find_element(By.ID, "activity-name")
             title = title_elem.text.strip() if title_elem else ""
 
-            # 获取作者
             author = ""
             try:
                 author_elem = self.driver.find_element(By.ID, "js_author_name")
@@ -216,7 +215,6 @@ class SpecialSiteHandler:
             except:
                 pass
 
-            # 获取发布日期
             publish_date = ""
             try:
                 date_elem = self.driver.find_element(By.ID, "publish_date")
@@ -224,11 +222,9 @@ class SpecialSiteHandler:
             except:
                 pass
 
-            # 获取正文内容
             content_elem = self.driver.find_element(By.ID, "js_content")
             soup = BeautifulSoup(content_elem.get_attribute('innerHTML'), 'lxml')
 
-            # 清理内容
             for tag in soup(['script', 'style', 'iframe', 'form']):
                 tag.decompose()
 
@@ -242,51 +238,53 @@ class SpecialSiteHandler:
                 'url': url
             }
         except Exception as e:
-            return self._extract_wechat_api(url)
+            return self._extract_wechat_simple(url)
 
-    def _extract_wechat_api(self, url: str) -> Dict[str, Any]:
-        """使用微信API提取文章（备用方案）"""
-        # 从URL中提取文章ID
-        parsed = urlparse(url)
-        path_parts = parsed.path.split('/')
-
-        # 尝试从URL获取文章ID
-        article_id = None
-        if 'appmsg' in url:
-            match = re.search(r'appmsg([^&]+)', url)
-            if match:
-                params = parse_qs(match.group(1))
-                article_id = params.get('mid', [None])[0] or params.get('appmsgid', [None])[0]
-
-        # 返回基本结果
-        return {
-            'title': '微信公众号文章',
-            'content': f'请手动访问: {url}\n\n该文章需要登录微信才能提取完整内容。',
-            'url': url,
-            'note': '微信文章需要微信客户端或Cookie才能完整提取'
+    def _extract_wechat_simple(self, url: str) -> Dict[str, Any]:
+        """简单方式提取微信公众号"""
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
+
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            soup = BeautifulSoup(response.text, 'lxml')
+
+            title = ""
+            title_elem = soup.find('h2', class_='rich_media_title')
+            if title_elem:
+                title = title_elem.get_text(strip=True)
+
+            content_elem = soup.find('div', class_='rich_media_content')
+            if content_elem:
+                for tag in content_elem(['script', 'style']):
+                    tag.decompose()
+                content = content_elem.get_text(separator='\n', strip=True)
+            else:
+                content = f"请手动访问: {url}"
+
+            return {'title': title, 'content': content, 'url': url}
+        except:
+            return {'title': '微信公众号文章', 'content': f'无法提取，请访问: {url}', 'url': url}
 
     def _extract_zhihu(self, url: str) -> Dict[str, Any]:
         """提取知乎文章"""
         self._init_driver()
 
         if self.driver is None:
-            return {'title': '知乎文章', 'content': f'无法提取，请访问: {url}', 'url': url}
+            return self._extract_zhihu_simple(url)
 
         try:
             self.driver.get(url)
             time.sleep(3)
 
-            # 等待页面加载
             WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.CLASS_NAME, "Post-Title"))
             )
 
-            # 获取标题
             title_elem = self.driver.find_element(By.CLASS_NAME, "Post-Title")
             title = title_elem.text.strip() if title_elem else ""
 
-            # 获取作者
             author = ""
             try:
                 author_elem = self.driver.find_element(By.CLASS_NAME, "AuthorInfo-name")
@@ -294,66 +292,58 @@ class SpecialSiteHandler:
             except:
                 pass
 
-            # 获取发布日期
-            publish_date = ""
-            try:
-                date_elem = self.driver.find_element(By.CLASS_NAME, "PublishTime")
-                publish_date = date_elem.text.strip()
-            except:
-                pass
-
-            # 获取正文内容
             content_elem = self.driver.find_element(By.CLASS_NAME, "Post-RichText")
             soup = BeautifulSoup(content_elem.get_attribute('innerHTML'), 'lxml')
 
-            # 清理并获取文本
             for tag in soup(['script', 'style', 'iframe', 'ad']):
                 tag.decompose()
 
             content = soup.get_text(separator='\n', strip=True)
 
-            return {
-                'title': title,
-                'content': content,
-                'author': author,
-                'date': publish_date,
-                'url': url
-            }
-        except Exception as e:
-            # 备用方案：使用知乎API
-            return self._extract_zhihu_api(url)
+            return {'title': title, 'content': content, 'author': author, 'url': url}
+        except:
+            return self._extract_zhihu_simple(url)
 
-    def _extract_zhihu_api(self, url: str) -> Dict[str, Any]:
-        """使用知乎API提取"""
-        # 提取文章ID
-        match = re.search(r'zhihu\.com/question/(\d+)', url)
-        if not match:
-            match = re.search(r'zhuanlan\.zhihu\.com/([a-zA-Z0-9-]+)', url)
+    def _extract_zhihu_simple(self, url: str) -> Dict[str, Any]:
+        """简单方式提取知乎"""
+        headers = {'User-Agent': 'Mozilla/5.0'}
 
-        # 返回基本信息
-        return {
-            'title': '知乎文章',
-            'content': f'请手动访问: {url}\n\n建议使用Selenium或手动复制内容。',
-            'url': url
-        }
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            soup = BeautifulSoup(response.text, 'lxml')
+
+            title = ""
+            title_elem = soup.find('h1')
+            if title_elem:
+                title = title_elem.get_text(strip=True)
+
+            content_elem = soup.find('article') or soup.find(class_=re.compile(r'content|article'))
+            if content_elem:
+                for tag in content_elem(['script', 'style']):
+                    tag.decompose()
+                content = content_elem.get_text(separator='\n', strip=True)
+            else:
+                content = f"请手动访问: {url}"
+
+            return {'title': title, 'content': content, 'url': url}
+        except:
+            return {'title': '知乎文章', 'content': f'无法提取: {url}', 'url': url}
 
     def _extract_medium(self, url: str) -> Dict[str, Any]:
         """提取Medium文章"""
         self._init_driver()
 
         if self.driver is None:
-            return {'title': 'Medium文章', 'content': f'无法提取，请访问: {url}', 'url': url}
+            return {'title': 'Medium文章', 'content': f'Selenium不可用，请访问: {url}', 'url': url}
 
         try:
             self.driver.get(url)
             time.sleep(3)
 
-            # 等待页面加载
             WebDriverWait(self.driver, 15).until(
                 EC.presence_of_element_located((By.TAG_NAME, "article"))
             )
 
-            # 获取标题
             title = ""
             try:
                 title_elem = self.driver.find_element(By.TAG_NAME, "h1")
@@ -361,45 +351,29 @@ class SpecialSiteHandler:
             except:
                 pass
 
-            # 获取作者
-            author = ""
-            try:
-                author_elem = self.driver.find_element(By.CSS_SELECTOR, "[data-testid='authorName']")
-                author = author_elem.text.strip()
-            except:
-                pass
-
-            # 获取正文内容
             content_elem = self.driver.find_element(By.TAG_NAME, "article")
             soup = BeautifulSoup(content_elem.get_attribute('innerHTML'), 'lxml')
 
-            # 清理内容
             for tag in soup(['script', 'style', 'iframe']):
                 tag.decompose()
 
             content = soup.get_text(separator='\n', strip=True)
 
-            return {
-                'title': title,
-                'content': content,
-                'author': author,
-                'url': url
-            }
-        except Exception as e:
-            return {'title': 'Medium文章', 'content': f'提取失败: {str(e)}\n\n请访问: {url}', 'url': url}
+            return {'title': title, 'content': content, 'url': url}
+        except:
+            return {'title': 'Medium文章', 'content': f'提取失败，请访问: {url}', 'url': url}
 
     def _extract_weibo(self, url: str) -> Dict[str, Any]:
         """提取微博内容"""
         self._init_driver()
 
         if self.driver is None:
-            return {'title': '微博', 'content': f'无法提取，请访问: {url}', 'url': url}
+            return {'title': '微博', 'content': f'Selenium不可用，请访问: {url}', 'url': url}
 
         try:
             self.driver.get(url)
             time.sleep(3)
 
-            # 获取内容
             content = ""
             try:
                 content_elem = self.driver.find_element(By.CLASS_NAME, "weibo-text")
@@ -411,27 +385,20 @@ class SpecialSiteHandler:
                 except:
                     pass
 
-            # 获取标题/用户
-            title = ""
+            title = "微博内容"
             try:
                 user_elem = self.driver.find_element(By.CLASS_NAME, "WB_name")
                 title = user_elem.text.strip()
             except:
-                title = "微博内容"
+                pass
 
-            return {
-                'title': title,
-                'content': content,
-                'url': url
-            }
-        except Exception as e:
-            return {'title': '微博', 'content': f'提取失败: {str(e)}', 'url': url}
+            return {'title': title, 'content': content, 'url': url}
+        except:
+            return {'title': '微博', 'content': f'提取失败: {url}', 'url': url}
 
     def _extract_juejin(self, url: str) -> Dict[str, Any]:
         """提取掘金文章"""
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
         try:
             response = requests.get(url, headers=headers, timeout=10)
@@ -439,35 +406,26 @@ class SpecialSiteHandler:
 
             soup = BeautifulSoup(response.text, 'lxml')
 
-            # 获取标题
             title = ""
             title_elem = soup.find('h1')
             if title_elem:
                 title = title_elem.text.strip()
 
-            # 获取正文
             content_elem = soup.find('article') or soup.find(class_=re.compile(r'content|article'))
             if content_elem:
-                # 清理脚本和样式
                 for tag in content_elem(['script', 'style']):
                     tag.decompose()
                 content = content_elem.get_text(separator='\n', strip=True)
             else:
                 content = "无法提取内容"
 
-            return {
-                'title': title,
-                'content': content,
-                'url': url
-            }
+            return {'title': title, 'content': content, 'url': url}
         except Exception as e:
             return {'title': '掘金文章', 'content': f'提取失败: {str(e)}', 'url': url}
 
     def _extract_csdn(self, url: str) -> Dict[str, Any]:
         """提取CSDN文章"""
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
         try:
             response = requests.get(url, headers=headers, timeout=10)
@@ -475,7 +433,6 @@ class SpecialSiteHandler:
 
             soup = BeautifulSoup(response.text, 'lxml')
 
-            # 获取标题
             title = ""
             title_elem = soup.find('h1', class_='title-article')
             if not title_elem:
@@ -483,7 +440,6 @@ class SpecialSiteHandler:
             if title_elem:
                 title = title_elem.text.strip()
 
-            # 获取正文 - CSDN主要内容在blog_content或article_content中
             content_elem = soup.find('div', id='article_content') or \
                           soup.find('div', class_='blog_content') or \
                           soup.find('article')
@@ -495,19 +451,13 @@ class SpecialSiteHandler:
             else:
                 content = "无法提取内容"
 
-            return {
-                'title': title,
-                'content': content,
-                'url': url
-            }
+            return {'title': title, 'content': content, 'url': url}
         except Exception as e:
             return {'title': 'CSDN文章', 'content': f'提取失败: {str(e)}', 'url': url}
 
     def _extract_stackoverflow(self, url: str) -> Dict[str, Any]:
         """提取StackOverflow内容"""
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
         try:
             response = requests.get(url, headers=headers, timeout=10)
@@ -515,13 +465,11 @@ class SpecialSiteHandler:
 
             soup = BeautifulSoup(response.text, 'lxml')
 
-            # 获取标题
             title = ""
             title_elem = soup.find('a', class_='question-hyperlink')
             if title_elem:
                 title = title_elem.text.strip()
 
-            # 获取问题内容
             question_elem = soup.find('div', class_='s-prose')
             if question_elem:
                 for tag in question_elem(['script', 'style']):
@@ -530,24 +478,17 @@ class SpecialSiteHandler:
             else:
                 content = "无法提取内容"
 
-            return {
-                'title': title,
-                'content': content,
-                'url': url
-            }
+            return {'title': title, 'content': content, 'url': url}
         except Exception as e:
             return {'title': 'StackOverflow', 'content': f'提取失败: {str(e)}', 'url': url}
 
     def _extract_github_readme(self, url: str) -> Dict[str, Any]:
         """提取GitHub README"""
-        # 转换URL为原始内容URL
-        # https://github.com/user/repo -> https://raw.githubusercontent.com/user/repo/main/README.md
         parsed = urlparse(url)
         path_parts = [p for p in parsed.path.split('/') if p]
 
         if len(path_parts) >= 2:
             user, repo = path_parts[0], path_parts[1]
-            # 尝试获取README
             for readme_name in ['README.md', 'README.rst', 'README', 'readme.md']:
                 raw_url = f"https://raw.githubusercontent.com/{user}/{repo}/main/{readme_name}"
                 try:
@@ -561,7 +502,6 @@ class SpecialSiteHandler:
                 except:
                     pass
 
-            # 尝试master分支
             for readme_name in ['README.md', 'README.rst', 'README']:
                 raw_url = f"https://raw.githubusercontent.com/{user}/{repo}/master/{readme_name}"
                 try:
@@ -575,17 +515,11 @@ class SpecialSiteHandler:
                 except:
                     pass
 
-        return {
-            'title': 'GitHub仓库',
-            'content': f'无法自动提取README，请访问: {url}',
-            'url': url
-        }
+        return {'title': 'GitHub仓库', 'content': f'无法自动提取README，请访问: {url}', 'url': url}
 
     def _extract_devto(self, url: str) -> Dict[str, Any]:
         """提取Dev.to文章"""
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
         try:
             response = requests.get(url, headers=headers, timeout=10)
@@ -593,13 +527,11 @@ class SpecialSiteHandler:
 
             soup = BeautifulSoup(response.text, 'lxml')
 
-            # 获取标题
             title = ""
             title_elem = soup.find('h1')
             if title_elem:
                 title = title_elem.text.strip()
 
-            # 获取正文
             content_elem = soup.find('div', class_='crayons-article__body')
             if not content_elem:
                 content_elem = soup.find('article')
@@ -611,11 +543,7 @@ class SpecialSiteHandler:
             else:
                 content = "无法提取内容"
 
-            return {
-                'title': title,
-                'content': content,
-                'url': url
-            }
+            return {'title': title, 'content': content, 'url': url}
         except Exception as e:
             return {'title': 'Dev.to文章', 'content': f'提取失败: {str(e)}', 'url': url}
 
@@ -629,17 +557,8 @@ class SpecialSiteHandler:
             self.driver = None
 
 
-# 便捷函数
 def detect_and_extract(url: str) -> Dict[str, Any]:
-    """
-    自动识别网站并提取内容
-
-    Args:
-        url: 网页URL
-
-    Returns:
-        提取的内容字典
-    """
+    """自动识别网站并提取内容"""
     handler = SpecialSiteHandler()
     try:
         site_name, config = handler.identify_site(url)

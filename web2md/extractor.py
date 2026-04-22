@@ -9,12 +9,18 @@ from typing import Dict, Any, Optional, Tuple
 from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
+
+# Selenium设为可选
+try:
+    from selenium import webdriver
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.chrome.service import Service
+    from webdriver_manager.chrome import ChromeDriverManager
+    SELENIUM_AVAILABLE = True
+except ImportError:
+    SELENIUM_AVAILABLE = False
 
 from .special_sites import SpecialSiteHandler
 from .markdown_formatter import MarkdownFormatter
@@ -78,12 +84,13 @@ class WebExtractor:
             print(f"requests方法失败: {e}")
 
         # 方法2: 使用Selenium（如果可用）
-        try:
-            result = self._extract_with_selenium(url)
-            if result.get('content') and len(result.get('content', '')) > 100:
-                return result
-        except Exception as e:
-            print(f"Selenium方法失败: {e}")
+        if SELENIUM_AVAILABLE:
+            try:
+                result = self._extract_with_selenium(url)
+                if result.get('content') and len(result.get('content', '')) > 100:
+                    return result
+            except Exception as e:
+                print(f"Selenium方法失败: {e}")
 
         # 方法3: 尝试trafilatura
         try:
@@ -216,6 +223,10 @@ class WebExtractor:
 
     def _extract_with_selenium(self, url: str) -> Dict[str, Any]:
         """使用Selenium提取动态内容"""
+        if not SELENIUM_AVAILABLE:
+            return {'error': 'Selenium不可用', 'url': url}
+
+        try:
         options = webdriver.ChromeOptions()
         options.add_argument('--headless')
         options.add_argument('--no-sandbox')
