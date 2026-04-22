@@ -148,7 +148,54 @@ class SpecialSiteHandler:
             return {'title': '微信公众号文章', 'content': f'提取失败: {str(e)}\n\n原文链接: {url}', 'url': url}
 
     def _extract_zhihu(self, url: str) -> Dict[str, Any]:
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        # 尝试从URL提取答案ID
+        import re
+        answer_id_match = re.search(r'answer/(\d+)', url)
+        question_id_match = re.search(r'question/(\d+)', url)
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json',
+        }
+
+        # 方法1: 使用API获取答案
+        if answer_id_match:
+            answer_id = answer_id_match.group(1)
+            api_url = f"https://www.zhihu.com/api/v4/answers/{answer_id}"
+            try:
+                response = requests.get(api_url, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    title = data.get('question', {}).get('title', '知乎问答')
+                    content = data.get('content', '')
+
+                    # 移除HTML标签
+                    if content:
+                        soup = BeautifulSoup(content, 'lxml')
+                        content = soup.get_text(separator='\n', strip=True)
+
+                    return {'title': title, 'content': content, 'url': url}
+            except:
+                pass
+
+        # 方法2: 获取问题信息
+        if question_id_match:
+            question_id = question_id_match.group(1)
+            api_url = f"https://www.zhihu.com/api/v4/questions/{question_id}"
+            try:
+                response = requests.get(api_url, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    title = data.get('title', '知乎问答')
+                    return {
+                        'title': title,
+                        'content': f'这是一个知乎问题。\n\n问题标题: {title}\n\n请访问原文查看回答: {url}',
+                        'url': url
+                    }
+            except:
+                pass
+
+        # 方法3: 尝试普通HTTP请求
         try:
             response = requests.get(url, headers=headers, timeout=10)
             soup = BeautifulSoup(response.text, 'lxml')
