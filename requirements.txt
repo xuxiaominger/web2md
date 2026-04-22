@@ -3,3 +3,4 @@ beautifulsoup4>=4.11.0
 lxml>=4.9.0
 PyGithub>=1.57.0
 html2text>=2020.1.16
+flask>=2.0.0

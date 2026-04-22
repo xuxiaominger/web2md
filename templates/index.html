@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web2MD - 网页转Markdown</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            width: 100%;
+            max-width: 700px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 15px 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+            outline: none;
+        }
+
+        input[type="text"]:focus {
+            border-color: #667eea;
+        }
+
+        button {
+            padding: 15px 40px;
+            background: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            white-space: nowrap;
+        }
+
+        button:hover {
+            background: #c0392b;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(231, 76, 60, 0.4);
+        }
+
+        button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .result {
+            display: none;
+        }
+
+        .result.show {
+            display: block;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .result-title {
+            font-size: 18px;
+            color: #333;
+            font-weight: bold;
+        }
+
+        .copy-btn {
+            padding: 8px 16px;
+            background: #667eea;
+            font-size: 14px;
+        }
+
+        .copy-btn:hover {
+            background: #5a6fd6;
+        }
+
+        textarea {
+            width: 100%;
+            height: 400px;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 14px;
+            resize: vertical;
+            outline: none;
+        }
+
+        textarea:focus {
+            border-color: #667eea;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #fee;
+            border: 1px solid #fcc;
+            color: #c00;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 15px;
+            display: none;
+        }
+
+        .error.show {
+            display: block;
+        }
+
+        .info {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔗 Web2MD</h1>
+        <p class="subtitle">将网页内容转换为Markdown格式</p>
+
+        <div class="info">
+            📋 复制网页链接，粘贴到下方输入框，点击转换按钮即可
+        </div>
+
+        <div class="input-group">
+            <input type="text" id="urlInput" placeholder="请输入网页链接..." onkeypress="handleKeyPress(event)">
+            <button id="convertBtn" onclick="convert()">🔴 转换</button>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>正在提取网页内容...</p>
+        </div>
+
+        <div class="error" id="error"></div>
+
+        <div class="result" id="result">
+            <div class="result-header">
+                <span class="result-title" id="resultTitle"></span>
+                <button class="copy-btn" onclick="copyResult()">📋 复制</button>
+            </div>
+            <textarea id="output" readonly></textarea>
+        </div>
+    </div>
+
+    <script>
+        async function convert() {
+            const url = document.getElementById('urlInput').value.trim();
+            if (!url) {
+                showError('请输入网页链接');
+                return;
+            }
+
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                showError('请输入有效的网页链接');
+                return;
+            }
+
+            document.getElementById('convertBtn').disabled = true;
+            document.getElementById('loading').classList.add('show');
+            document.getElementById('result').classList.remove('show');
+            document.getElementById('error').classList.remove('show');
+
+            try {
+                const response = await fetch('/api/convert', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({url: url})
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    showError(data.error);
+                } else {
+                    document.getElementById('resultTitle').textContent = data.title || '转换结果';
+                    document.getElementById('output').value = data.markdown;
+                    document.getElementById('result').classList.add('show');
+                }
+            } catch (e) {
+                showError('网络错误，请稍后重试');
+            } finally {
+                document.getElementById('convertBtn').disabled = false;
+                document.getElementById('loading').classList.remove('show');
+            }
+        }
+
+        function copyResult() {
+            const output = document.getElementById('output');
+            output.select();
+            document.execCommand('copy');
+
+            const btn = document.querySelector('.copy-btn');
+            btn.textContent = '✅ 已复制';
+            setTimeout(() => btn.textContent = '📋 复制', 2000);
+        }
+
+        function showError(msg) {
+            const error = document.getElementById('error');
+            error.textContent = msg;
+            error.classList.add('show');
+        }
+
+        function handleKeyPress(e) {
+            if (e.key === 'Enter') {
+                convert();
+            }
+        }
+
+        // 自动读取剪贴板
+        async function checkClipboard() {
+            try {
+                const text = await navigator.clipboard.readText();
+                if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
+                    document.getElementById('urlInput').value = text;
+                }
+            } catch (e) {}
+        }
+
+        // 页面加载时检查剪贴板
+        checkClipboard();
+    </script>
+</body>
+</html>
