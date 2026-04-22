@@ -7,7 +7,6 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog
 import threading
 from typing import Optional, Callable
-import pyperclip  # 剪贴板操作
 
 from .extractor import WebExtractor
 from .markdown_formatter import MarkdownFormatter
@@ -138,7 +137,7 @@ class Web2MDGUI:
         """从剪贴板读取URL"""
         try:
             # 尝试读取剪贴板
-            clipboard_text = pyperclip.paste()
+            clipboard_text = self.root.clipboard_get()
 
             if clipboard_text:
                 # 检查是否是有效的URL
@@ -151,7 +150,7 @@ class Web2MDGUI:
                 else:
                     messagebox.showwarning("提示", "剪贴板中未包含有效的网页链接")
         except Exception as e:
-            # 回退到tkinter内置方法
+            # 回退到其他方法
             try:
                 clipboard_text = self.root.clipboard_get()
                 if clipboard_text and (clipboard_text.startswith('http://') or clipboard_text.startswith('https://')):
@@ -165,7 +164,7 @@ class Web2MDGUI:
     def _check_clipboard(self):
         """检查剪贴板是否有URL"""
         try:
-            clipboard_text = pyperclip.paste()
+            clipboard_text = self.root.clipboard_get()
             if clipboard_text and (clipboard_text.startswith('http://') or clipboard_text.startswith('https://')):
                 self.url_entry.insert(0, clipboard_text)
                 self.current_url = clipboard_text
@@ -306,13 +305,11 @@ class Web2MDGUI:
             return
 
         try:
-            pyperclip.copy(self.current_markdown)
-            self.status_label.config(text="已复制到剪贴板", foreground='green')
-        except:
-            # 回退
             self.root.clipboard_clear()
             self.root.clipboard_append(self.current_markdown)
             self.status_label.config(text="已复制到剪贴板", foreground='green')
+        except:
+            messagebox.showwarning("提示", "复制失败")
 
     def run(self):
         """运行程序"""
