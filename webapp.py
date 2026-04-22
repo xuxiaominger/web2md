@@ -36,8 +36,25 @@ def convert():
     finally:
         extractor.close()
 
-    if 'error' in content and content.get('content'):
-        return jsonify({'error': content.get('error', '提取失败')}), 500
+    # 如果提取失败或内容太短，尝试使用高级提取器
+    if not content.get('content') or len(content.get('content', '')) < 50:
+        try:
+            from web2md.advanced_extractor import advanced_extract
+            content = advanced_extract(url)
+        except:
+            pass
+
+    # 检查是否是需要登录/JS的内容
+    error_msg = content.get('error', '')
+    if '需要登录' in error_msg or '需要JavaScript' in error_msg or 'Selenium' in error_msg:
+        # 尝试使用高级提取器
+        try:
+            from web2md.advanced_extractor import advanced_extract
+            advanced_content = advanced_extract(url)
+            if advanced_content.get('content') and len(advanced_content.get('content', '')) > 50:
+                content = advanced_content
+        except:
+            pass
 
     # 转换为Markdown
     formatter = MarkdownFormatter()
