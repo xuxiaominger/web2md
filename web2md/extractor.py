@@ -98,7 +98,29 @@ class WebExtractor:
         response = self.session.get(url, timeout=self.timeout)
         response.raise_for_status()
 
-        soup = BeautifulSoup(response.text, 'lxml')
+        # 自动检测编码
+        encoding = response.encoding
+        if not encoding or encoding.lower() in ['iso-8859-1', 'latin1']:
+            # 尝试从content-type获取编码
+            content_type = response.headers.get('content-type', '')
+            if 'charset=' in content_type:
+                encoding = content_type.split('charset=')[-1].split(';')[0].strip()
+            else:
+                # 使用chardet检测（如果可用）
+                try:
+                    import chardet
+                    detected = chardet.detect(response.content)
+                    encoding = detected.get('encoding', 'utf-8')
+                except:
+                    encoding = 'utf-8'
+
+        # 尝试解码
+        try:
+            text = response.content.decode(encoding)
+        except:
+            text = response.text
+
+        soup = BeautifulSoup(text, 'lxml')
 
         # 移除不需要的标签
         for tag in soup(['script', 'style', 'iframe', 'noscript', 'nav', 'footer', 'header']):
