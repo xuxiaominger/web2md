@@ -55,13 +55,7 @@ class SpecialSiteHandler:
     def extract(self, url: str, config: Dict) -> Dict[str, Any]:
         method = config.get('method', 'generic')
 
-        if config.get('need_js') and not SELENIUM_AVAILABLE:
-            return {
-                'title': config.get('name', '网页文章'),
-                'content': f'该网站({config.get("name")})需要JavaScript渲染，Selenium当前不可用。\n\n原文链接: {url}',
-                'url': url
-            }
-
+        # 直接调用提取方法，每个方法内部自行处理是否需要JS
         method_map = {
             'wechat': self._extract_wechat,
             'zhihu': self._extract_zhihu,
