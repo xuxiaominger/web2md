@@ -100,7 +100,25 @@ class WebExtractor:
 
         # 自动检测编码
         encoding = response.encoding
-        if not encoding or encoding.lower() in ['iso-8859-1', 'latin1']:
+
+        # 首先尝试从HTML meta标签中获取编码
+        try:
+            html_text = response.content[:5000]  # 只取前5000字节检测编码
+            soup_temp = BeautifulSoup(html_text, 'lxml')
+            meta_charset = soup_temp.find('meta', charset=True)
+            if meta_charset:
+                encoding = meta_charset.get('charset')
+            else:
+                # 尝试 http-equiv content-type
+                meta_content = soup_temp.find('meta', http_equiv='Content-Type')
+                if meta_content and meta_content.get('content'):
+                    content_val = meta_content['content']
+                    if 'charset=' in content_val:
+                        encoding = content_val.split('charset=')[-1].split(';')[0].strip()
+        except:
+            pass
+
+        if not encoding or encoding.lower() in ['iso-8859-1', 'latin1', 'gb2312']:
             # 尝试从content-type获取编码
             content_type = response.headers.get('content-type', '')
             if 'charset=' in content_type:
@@ -118,7 +136,11 @@ class WebExtractor:
         try:
             text = response.content.decode(encoding)
         except:
-            text = response.text
+            try:
+                # 如果指定编码失败，尝试GB2312/GBK
+                text = response.content.decode('gbk')
+            except:
+                text = response.text
 
         soup = BeautifulSoup(text, 'lxml')
 
