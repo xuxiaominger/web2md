@@ -80,27 +80,78 @@ class SpecialSiteHandler:
         return {'title': '', 'content': '', 'error': '未支持的网站类型'}
 
     def _extract_wechat(self, url: str) -> Dict[str, Any]:
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        }
+
         try:
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
             soup = BeautifulSoup(response.text, 'lxml')
 
+            # 尝试多种选择器获取标题
             title = ""
-            title_elem = soup.find('h2', class_='rich_media_title')
-            if title_elem:
-                title = title_elem.get_text(strip=True)
+            title_selectors = [
+                'h2.rich_media_title',
+                'h1#activity-name',
+                '.article_title',
+                'title'
+            ]
+            for selector in title_selectors:
+                title_elem = soup.select_one(selector)
+                if title_elem:
+                    title = title_elem.get_text(strip=True)
+                    if title and len(title) > 5:
+                        break
 
-            content_elem = soup.find('div', class_='rich_media_content')
-            if content_elem:
-                for tag in content_elem(['script', 'style']):
-                    tag.decompose()
-                content = content_elem.get_text(separator='\n', strip=True)
-            else:
-                content = f"请手动访问: {url}"
+            # 尝试多种选择器获取内容
+            content = ""
+            content_selectors = [
+                'div.rich_media_content',
+                'div#js_content',
+                'div.article-content',
+                'div.content',
+                'article',
+                'div[id*="content"]',
+                'div[class*="content"]'
+            ]
 
-            return {'title': title, 'content': content, 'url': url}
-        except:
-            return {'title': '微信公众号文章', 'content': f'无法提取: {url}', 'url': url}
+            for selector in content_selectors:
+                content_elem = soup.select_one(selector)
+                if content_elem:
+                    # 移除脚本和样式
+                    for tag in content_elem(['script', 'style', 'iframe', 'form', 'svg']):
+                        tag.decompose()
+                    content = content_elem.get_text(separator='\n', strip=True)
+                    if len(content) > 100:
+                        break
+
+            if title and content:
+                return {'title': title, 'content': content, 'url': url}
+
+            # 如果提取失败，检查是否被重定向或需要验证
+            if 'verify' in response.url.lower() or 'login' in response.url.lower():
+                return {
+                    'title': '微信公众号文章',
+                    'content': '该文章需要微信登录验证，无法直接提取。\n\n建议方案：\n1. 手动复制文章内容\n2. 使用微信读书分享功能\n3. 截图后使用OCR识别\n\n原文链接: ' + url,
+                    'url': url
+                }
+
+            # 返回部分提取结果或提示
+            if title or content:
+                return {'title': title or '微信公众号文章', 'content': content or '无法提取完整内容', 'url': url}
+
+            return {
+                'title': '微信公众号文章',
+                'content': '无法提取微信文章内容。\n\n微信公众号有反爬虫机制，完整提取需要：\n1. 使用Selenium模拟浏览器\n2. 手动复制内容\n\n原文链接: ' + url,
+                'url': url
+            }
+
+        except requests.RequestException as e:
+            return {'title': '微信公众号文章', 'content': f'网络错误: {str(e)}\n\n原文链接: {url}', 'url': url}
+        except Exception as e:
+            return {'title': '微信公众号文章', 'content': f'提取失败: {str(e)}\n\n原文链接: {url}', 'url': url}
 
     def _extract_zhihu(self, url: str) -> Dict[str, Any]:
         headers = {'User-Agent': 'Mozilla/5.0'}
