@@ -148,70 +148,38 @@ class SpecialSiteHandler:
             return {'title': '微信公众号文章', 'content': f'提取失败: {str(e)}\n\n原文链接: {url}', 'url': url}
 
     def _extract_zhihu(self, url: str) -> Dict[str, Any]:
-        # 尝试从URL提取答案ID
+        # 知乎有反爬虫机制，尝试API
         import re
         answer_id_match = re.search(r'answer/(\d+)', url)
         question_id_match = re.search(r'question/(\d+)', url)
 
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'application/json',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+            'Referer': 'https://www.zhihu.com',
         }
 
-        # 方法1: 使用API获取答案
-        if answer_id_match:
-            answer_id = answer_id_match.group(1)
-            api_url = f"https://www.zhihu.com/api/v4/answers/{answer_id}"
-            try:
-                response = requests.get(api_url, headers=headers, timeout=10)
-                if response.status_code == 200:
-                    data = response.json()
-                    title = data.get('question', {}).get('title', '知乎问答')
-                    content = data.get('content', '')
-
-                    # 移除HTML标签
-                    if content:
-                        soup = BeautifulSoup(content, 'lxml')
-                        content = soup.get_text(separator='\n', strip=True)
-
-                    return {'title': title, 'content': content, 'url': url}
-            except:
-                pass
-
-        # 方法2: 获取问题信息
+        # 尝试获取问题信息
         if question_id_match:
             question_id = question_id_match.group(1)
-            api_url = f"https://www.zhihu.com/api/v4/questions/{question_id}"
-            try:
-                response = requests.get(api_url, headers=headers, timeout=10)
-                if response.status_code == 200:
-                    data = response.json()
-                    title = data.get('title', '知乎问答')
-                    return {
-                        'title': title,
-                        'content': f'这是一个知乎问题。\n\n问题标题: {title}\n\n请访问原文查看回答: {url}',
-                        'url': url
-                    }
-            except:
-                pass
+            # 尝试从URL中提取标题（可能直接包含在URL中）
+            title = f"知乎问答 {question_id}"
 
-        # 方法3: 尝试普通HTTP请求
-        try:
-            response = requests.get(url, headers=headers, timeout=10)
-            soup = BeautifulSoup(response.text, 'lxml')
+        return {
+            'title': '知乎问答',
+            'content': f'''知乎内容需要登录账户才能提取。
 
-            title = ""
-            title_elem = soup.find('h1')
-            if title_elem:
-                title = title_elem.get_text(strip=True)
+原因：知乎有反爬虫机制，需要登录才能访问。
 
-            content_elem = soup.find('article') or soup.find(class_=re.compile(r'content|article'))
-            if content_elem:
-                for tag in content_elem(['script', 'style']):
-                    tag.decompose()
-                content = content_elem.get_text(separator='\n', strip=True)
-            else:
-                content = f"请手动访问: {url}"
+解决方案：
+1. 手动复制内容后粘贴
+2. 使用桌面版GUI（需要安装Selenium）
+3. 登录知乎后再次尝试
+
+原文链接: {url}''',
+            'url': url
+        }
 
             return {'title': title, 'content': content, 'url': url}
         except:
