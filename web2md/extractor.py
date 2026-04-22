@@ -10,17 +10,8 @@ from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
 
-# Selenium设为可选
-try:
-    from selenium import webdriver
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.chrome.service import Service
-    from webdriver_manager.chrome import ChromeDriverManager
-    SELENIUM_AVAILABLE = True
-except ImportError:
-    SELENIUM_AVAILABLE = False
+# Selenium设为完全可选 - 延迟导入避免启动时崩溃
+SELENIUM_AVAILABLE = False
 
 from .special_sites import SpecialSiteHandler
 from .markdown_formatter import MarkdownFormatter
@@ -222,54 +213,57 @@ class WebExtractor:
         return '\n\n'.join(cleaned)
 
     def _extract_with_selenium(self, url: str) -> Dict[str, Any]:
-        """使用Selenium提取动态内容"""
+        """使用Selenium提取动态内容 - 运行时导入避免启动时崩溃"""
         if not SELENIUM_AVAILABLE:
             return {'error': 'Selenium不可用', 'url': url}
 
+        # 运行时导入
         try:
-        options = webdriver.ChromeOptions()
-        options.add_argument('--headless')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--disable-gpu')
-        options.add_argument('--window-size=1920,1080')
-        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
-
-        driver = webdriver.Chrome(
-            service=Service(ChromeDriverManager().install()),
-            options=options
-        )
+            from selenium import webdriver
+            from selenium.webdriver.common.by import By
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
+            from selenium.webdriver.chrome.service import Service
+            from webdriver_manager.chrome import ChromeDriverManager
+        except Exception as e:
+            return {'error': f'Selenium导入失败: {e}', 'url': url}
 
         try:
-            driver.get(url)
-            time.sleep(3)  # 等待JavaScript加载
+            options = webdriver.ChromeOptions()
+            options.add_argument('--headless')
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument('--disable-gpu')
+            options.add_argument('--window-size=1920,1080')
+            options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
 
-            # 等待主要内容加载
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.TAG_NAME, "body"))
+            driver = webdriver.Chrome(
+                service=Service(ChromeDriverManager().install()),
+                options=options
             )
 
-            # 获取页面源码
-            html = driver.page_source
-            soup = BeautifulSoup(html, 'lxml')
+            try:
+                driver.get(url)
+                time.sleep(3)
 
-            # 移除不需要的标签
-            for tag in soup(['script', 'style', 'iframe', 'noscript', 'nav', 'footer', 'header']):
-                tag.decompose()
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
 
-            # 提取标题
-            title = self._extract_title(soup)
+                html = driver.page_source
+                soup = BeautifulSoup(html, 'lxml')
 
-            # 提取内容
-            content = self._extract_main_content(soup)
+                for tag in soup(['script', 'style', 'iframe', 'noscript', 'nav', 'footer', 'header']):
+                    tag.decompose()
 
-            return {
-                'title': title,
-                'content': content,
-                'url': url
-            }
-        finally:
-            driver.quit()
+                title = self._extract_title(soup)
+                content = self._extract_main_content(soup)
+
+                return {'title': title, 'content': content, 'url': url}
+            finally:
+                driver.quit()
+        except Exception as e:
+            return {'error': f'Selenium执行失败: {e}', 'url': url}
 
     def _extract_with_trafilatura(self, url: str) -> Dict[str, Any]:
         """使用trafilatura库提取"""
