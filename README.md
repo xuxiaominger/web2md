@@ -4,11 +4,23 @@
 
 ## 🌐 在线网页版
 
-**访问地址：https://web2md.onrender.com**
+**点击部署到 Render：**
 
-（首次打开可能需要几秒钟启动）
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://dashboard.render.com/select-repo?filter=my-repos&repoUrl=https://github.com/xuxiaominger/web2md)
 
-## 💻 本地运行
+部署步骤：
+1. 点击上方按钮或访问 https://dashboard.render.com
+2. 用 GitHub 登录
+3. 选择 `web2md` 仓库
+4. 设置：
+   - Name: `web2md`
+   - Region: `Oregon`
+   - Branch: `main`
+   - Build Command: `pip install -r requirements.txt`
+   - Start Command: `python webapp.py`
+5. 点击 Deploy
+
+## 本地运行
 
 ```bash
 # 克隆仓库
@@ -44,17 +56,10 @@ python webapp.py
 
 ## 本地GUI版本
 
-如需桌面应用，请运行：
+如需桌面应用：
 ```bash
 python app.py
 ```
-
-## 技术栈
-
-- Flask: 网页后端
-- BeautifulSoup: HTML解析
-- HTML2Text: Markdown转换
-- tkinter: 桌面GUI
 
 ## GitHub
 
