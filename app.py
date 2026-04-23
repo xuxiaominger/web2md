@@ -1,6 +1,5 @@
 """
 Web2MD Remote Controller - Flask Web App
-部署到 Render
 """
 
 from flask import Flask, render_template_string, request, jsonify
@@ -10,9 +9,10 @@ import sys
 app = Flask(__name__)
 
 # 添加路径
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, BASE_DIR)
 
-# Obsidian路径 - Render环境变量
+# Obsidian路径
 OBSIDIAN_PATH = os.environ.get('OBSIDIAN_PATH', '/Users/xuxiaoming/Documents/我的笔记本/2025年10月2日至')
 
 # HTML界面
@@ -21,7 +21,7 @@ HTML = '''
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Web2MD 远程控制</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -43,7 +43,7 @@ HTML = '''
         .btn {
             padding: 14px 24px; background: #e74c3c; color: white;
             border: none; border-radius: 12px; font-size: 16px; font-weight: bold;
-            cursor: pointer; white-space: nowrap;
+            cursor: pointer;
         }
         .btn:active { transform: scale(0.98); }
         .btn:disabled { background: #95a5a6; }
@@ -57,17 +57,12 @@ HTML = '''
         .result-item .status.saving { color: #f39c12; }
         .status-bar { text-align: center; color: white; padding: 12px; font-size: 14px; }
         .info { background: rgba(255,255,255,0.2); border-radius: 8px; padding: 12px; margin-bottom: 16px; color: white; font-size: 14px; text-align: center; }
-        .error { background: #ffebee; color: #c62828; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🔗 Web2MD 远程控制</h1>
-
-        <div class="info">
-            💾 保存位置: Obsidian<br>
-            📍 {{obsidian_path}}
-        </div>
+        <div class="info">💾 保存到: Obsidian</div>
 
         <div class="card">
             <div class="search-box">
@@ -77,7 +72,7 @@ HTML = '''
         </div>
 
         <div class="card results" id="results">
-            <p style="color:#666;text-align:center;">输入关键词搜索，最多显示50个结果</p>
+            <p style="color:#666;text-align:center;">输入关键词搜索</p>
         </div>
 
         <div class="status-bar" id="status">等待操作...</div>
@@ -97,42 +92,28 @@ HTML = '''
         try {
             const r = await fetch('/api/search?q=' + encodeURIComponent(kw));
             const data = await r.json();
-
-            if(data.error) {
-                document.getElementById('status').textContent = '搜索失败: ' + data.error;
-                document.getElementById('results').innerHTML = '<div class="error">错误: ' + data.error + '</div>';
-                return;
-            }
-
             results = data.results || [];
-            showResults();
-            document.getElementById('status').textContent = '找到 ' + results.length + ' 个结果，点击提取';
+
+            if(results.length === 0) {
+                document.getElementById('results').innerHTML = '<p style="color:#666;text-align:center;">未找到结果</p>';
+            } else {
+                document.getElementById('results').innerHTML = results.map((r,i) =>
+                    '<div class="result-item" onclick="extract('+i+')"><div class="title">'+r.title+'</div><div class="url">'+r.url+'</div><div class="status" id="s'+i+'">点击提取</div></div>'
+                ).join('');
+            }
+            document.getElementById('status').textContent = '找到 ' + results.length + ' 个结果';
         } catch(e) {
             document.getElementById('status').textContent = '搜索失败: ' + e.message;
-            document.getElementById('results').innerHTML = '<div class="error">网络错误: ' + e.message + '</div>';
         }
 
         document.getElementById('searchBtn').disabled = false;
     }
 
-    function showResults() {
-        const container = document.getElementById('results');
-        if(results.length === 0) {
-            container.innerHTML = '<p style="color:#666;text-align:center;">未找到结果，请尝试其他关键词</p>';
-            return;
-        }
-        container.innerHTML = results.map((r,i) =>
-            '<div class="result-item" onclick="extract('+i+')"><div class="title">'+r.title+'</div><div class="url">'+r.url+'</div><div class="status" id="s'+i+'">点击提取保存到Obsidian</div></div>'
-        ).join('');
-    }
-
     async function extract(i) {
         const r = results[i];
         const statusEl = document.getElementById('s'+i);
-
-        statusEl.textContent = '正在提取...';
+        statusEl.textContent = '提取中...';
         statusEl.className = 'status saving';
-        document.getElementById('status').textContent = '正在提取: ' + r.title;
 
         try {
             const resp = await fetch('/api/extract', {
@@ -143,12 +124,10 @@ HTML = '''
             const data = await resp.json();
 
             if(data.success) {
-                statusEl.textContent = '✅ 已保存到Obsidian';
+                statusEl.textContent = '✅ 已保存';
                 statusEl.className = 'status saved';
-                document.getElementById('status').textContent = '保存成功: ' + r.title;
             } else {
-                statusEl.textContent = '❌ ' + (data.error || '提取失败');
-                statusEl.className = 'status';
+                statusEl.textContent = '❌ ' + (data.error || '失败');
             }
         } catch(e) {
             statusEl.textContent = '❌ ' + e.message;
@@ -161,21 +140,23 @@ HTML = '''
 
 @app.route('/')
 def index():
-    return render_template_string(HTML, obsidian_path=OBSIDIAN_PATH)
+    return render_template_string(HTML)
 
 @app.route('/api/search')
 def api_search():
     """搜索API"""
-    from webclipper.searcher import search as do_search
     q = request.args.get('q', '')
 
     if not q:
         return jsonify({'results': [], 'error': '请输入关键词'})
 
     try:
+        from webclipper.searcher import search as do_search
         results = do_search(q, limit=50)
         return jsonify({'results': results})
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'results': [], 'error': str(e)})
 
 @app.route('/api/extract', methods=['POST'])
@@ -191,7 +172,7 @@ def api_extract():
         from webclipper.crawler import crawl_url
         result = crawl_url(url, OBSIDIAN_PATH)
 
-        if 'error' in result:
+        if 'error' in result and result.get('error'):
             return jsonify({'success': False, 'error': result.get('error')})
 
         return jsonify({
@@ -200,6 +181,8 @@ def api_extract():
             'saved': result.get('saved_path')
         })
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)})
 
 if __name__ == '__main__':
