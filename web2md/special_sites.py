@@ -180,8 +180,6 @@ class SpecialSiteHandler:
 原文链接: {url}''',
             'url': url
         }
-
-            return {'title': title, 'content': content, 'url': url}
         except:
             return {'title': '知乎文章', 'content': f'无法提取: {url}', 'url': url}
 
