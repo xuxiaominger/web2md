@@ -95,7 +95,7 @@ HTML = '''
 def index():
     return render_template_string(HTML)
 
-@app.route('/s')
+@app.route('/api/search')
 def search():
     """Search API"""
     q = request.args.get('q', '')
@@ -131,7 +131,7 @@ def search():
     except Exception as e:
         return jsonify({'results': [], 'error': str(e)})
 
-@app.route('/e', methods=['POST'])
+@app.route('/api/extract', methods=['POST'])
 def extract():
     """Extract API"""
     try:
