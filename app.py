@@ -57,6 +57,7 @@ HTML = '''
         .result-item .status.saving { color: #f39c12; }
         .status-bar { text-align: center; color: white; padding: 12px; font-size: 14px; }
         .info { background: rgba(255,255,255,0.2); border-radius: 8px; padding: 12px; margin-bottom: 16px; color: white; font-size: 14px; text-align: center; }
+        .error { background: #ffebee; color: #c62828; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
     </style>
 </head>
 <body>
@@ -96,11 +97,19 @@ HTML = '''
         try {
             const r = await fetch('/api/search?q=' + encodeURIComponent(kw));
             const data = await r.json();
+
+            if(data.error) {
+                document.getElementById('status').textContent = '搜索失败: ' + data.error;
+                document.getElementById('results').innerHTML = '<div class="error">错误: ' + data.error + '</div>';
+                return;
+            }
+
             results = data.results || [];
             showResults();
             document.getElementById('status').textContent = '找到 ' + results.length + ' 个结果，点击提取';
         } catch(e) {
             document.getElementById('status').textContent = '搜索失败: ' + e.message;
+            document.getElementById('results').innerHTML = '<div class="error">网络错误: ' + e.message + '</div>';
         }
 
         document.getElementById('searchBtn').disabled = false;
@@ -109,7 +118,7 @@ HTML = '''
     function showResults() {
         const container = document.getElementById('results');
         if(results.length === 0) {
-            container.innerHTML = '<p style="color:#666;text-align:center;">未找到结果</p>';
+            container.innerHTML = '<p style="color:#666;text-align:center;">未找到结果，请尝试其他关键词</p>';
             return;
         }
         container.innerHTML = results.map((r,i) =>
@@ -159,6 +168,7 @@ def api_search():
     """搜索API"""
     from webclipper.searcher import search as do_search
     q = request.args.get('q', '')
+
     if not q:
         return jsonify({'results': [], 'error': '请输入关键词'})
 
