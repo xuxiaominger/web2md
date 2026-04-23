@@ -113,6 +113,7 @@ def search():
         headers = {'User-Agent': 'Mozilla/5.0'}
 
         resp = requests.get(url, headers=headers, timeout=15)
+        print(f"Search status: {resp.status_code}")
         soup = BeautifulSoup(resp.text, 'lxml')
 
         for item in soup.select('.result')[:50]:
