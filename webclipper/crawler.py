@@ -9,7 +9,9 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 # 添加项目根目录到路径
-sys.path.insert(0, str(Path(__file__).parent.parent))
+root_dir = str(Path(__file__).parent.parent)
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
 
 from web2md.extractor import WebExtractor
 from web2md.obsidian_sync import ObsidianSync
@@ -26,15 +28,7 @@ class WebCrawler:
             self.obsidian = ObsidianSync(obsidian_path)
 
     def crawl(self, url: str) -> Dict[str, Any]:
-        """
-        爬取单个URL
-
-        Args:
-            url: 网页URL
-
-        Returns:
-            爬取结果字典
-        """
+        """爬取单个URL"""
         print(f"正在爬取: {url}")
         result = self.extractor.extract(url)
 
@@ -57,23 +51,6 @@ class WebCrawler:
                 print(f"保存失败: {path}")
 
         return result
-
-    def crawl_multiple(self, urls: List[str]) -> List[Dict[str, Any]]:
-        """
-        爬取多个URL
-
-        Args:
-            urls: URL列表
-
-        Returns:
-            爬取结果列表
-        """
-        results = []
-        for i, url in enumerate(urls, 1):
-            print(f"[{i}/{len(urls)}] {url}")
-            result = self.crawl(url)
-            results.append(result)
-        return results
 
     def _to_markdown(self, result: Dict[str, Any]) -> str:
         """转换为Markdown格式"""
@@ -108,12 +85,9 @@ tags: [webclipper]
 
     def _generate_filename(self, title: str) -> str:
         """生成文件名"""
-        # 清理标题
         clean_title = ''.join(c for c in title if c.isalnum() or c in (' ', '-', '_'))
         clean_title = clean_title.strip()[:50]
         clean_title = clean_title.replace(' ', '_')
-
-        # 添加日期
         date = datetime.now().strftime('%Y%m%d')
         return f"{date}_{clean_title}.md"
 
@@ -124,36 +98,9 @@ tags: [webclipper]
 
 
 def crawl_url(url: str, obsidian_path: str = None) -> Dict[str, Any]:
-    """
-    便捷函数：爬取单个URL
-
-    Args:
-        url: 网页URL
-        obsidian_path: Obsidian库路径
-
-    Returns:
-        爬取结果
-    """
+    """便捷函数：爬取单个URL"""
     crawler = WebCrawler(obsidian_path)
     try:
         return crawler.crawl(url)
-    finally:
-        crawler.close()
-
-
-def crawl_urls(urls: List[str], obsidian_path: str = None) -> List[Dict[str, Any]]:
-    """
-    便捷函数：爬取多个URL
-
-    Args:
-        urls: URL列表
-        obsidian_path: Obsidian库路径
-
-    Returns:
-        爬取结果列表
-    """
-    crawler = WebCrawler(obsidian_path)
-    try:
-        return crawler.crawl_multiple(urls)
     finally:
         crawler.close()
